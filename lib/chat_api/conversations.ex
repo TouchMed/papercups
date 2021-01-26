@@ -37,8 +37,9 @@ defmodule ChatApi.Conversations do
     |> where(^filter_where(attrs))
     |> where([c], is_nil(c.archived_at))
     |> order_by([c, f], desc: f)
-    |> preload([:customer, messages: [user: :profile]])
+    |> preload([:customer, messages: [:uploads, user: :profile]])
     |> Repo.all()
+    # |> preload([:customer, messages: [user: :profile, :attachments]])
   end
 
   @spec list_conversations_by_account(binary()) :: [Conversation.t()]
@@ -79,7 +80,7 @@ defmodule ChatApi.Conversations do
     # TODO: make sure messages are sorted properly?
     Conversation
     |> Repo.get!(id)
-    |> Repo.preload([:customer, :tags, messages: [user: :profile]])
+    |> Repo.preload([:customer, :tags, messages: [:uploads, user: :profile]])
   end
 
   @spec get_conversation(binary()) :: Conversation.t() | nil

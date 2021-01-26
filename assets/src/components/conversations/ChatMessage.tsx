@@ -105,6 +105,7 @@ const ChatMessage = ({
     user,
     seen_at,
     private: isPrivate,
+    uploads,
   } = message;
   const isAgent = !!user;
   const tooltip = getSenderIdentifier(customer, user);
@@ -115,6 +116,8 @@ const ChatMessage = ({
   const customerId = customer && customer.id;
   const color = getColorByUuid(customerId);
 
+  // TODO: might be nice to push the boolean logic related to color down to the ChatMessageBox
+  // Maybe have PrivateChatMessageBox, ChatMessageBox, OtherCustomerMessageBox
   if (isMe) {
     return (
       <Box pr={0} pl={4} pb={isLastInGroup ? 3 : 2}>
@@ -127,6 +130,8 @@ const ChatMessage = ({
               py: 2,
               background: isPrivate ? colors.note : colors.primary,
             }}
+            uploadColor={isPrivate ? 'black' : 'white'}
+            uploads={uploads}
           />
         </Flex>
         {shouldDisplayTimestamp && (
@@ -159,6 +164,7 @@ const ChatMessage = ({
             background: isPrivate ? colors.note : 'rgb(245, 245, 245)',
             maxWidth: '80%',
           }}
+          uploads={uploads}
         />
       </Flex>
       {shouldDisplayTimestamp && (
