@@ -61,6 +61,7 @@ export type Message = {
   sent_at?: string;
   seen_at?: string;
   customer_id?: string;
+  customer?: Customer;
   conversation_id: string;
   user_id?: number;
   user?: User;
@@ -68,6 +69,7 @@ export type Message = {
 
 export type Conversation = {
   id: string;
+  source?: string;
   account_id: string;
   customer_id: string;
   customer: Customer;

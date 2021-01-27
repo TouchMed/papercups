@@ -2,9 +2,8 @@ defmodule ChatApiWeb.ConversationController do
   use ChatApiWeb, :controller
   use PhoenixSwagger
 
-  alias ChatApi.Conversations
+  alias ChatApi.{Conversations, Messages}
   alias ChatApi.Conversations.{Conversation, Helpers}
-  alias ChatApi.Messages
 
   action_fallback(ChatApiWeb.FallbackController)
 
@@ -74,6 +73,27 @@ defmodule ChatApiWeb.ConversationController do
     conversations = Conversations.find_by_customer(customer_id, account_id)
 
     render(conn, "index.json", conversations: conversations)
+  end
+
+  @spec previous(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def previous(conn, %{"conversation_id" => conversation_id}) do
+    with %Conversation{} = conversation <- Conversations.get_conversation(conversation_id) do
+      # TODO: should we just return the conversation ID?
+      previous = Conversations.get_previous_conversation(conversation)
+
+      render(conn, "show.json", conversation: previous)
+    end
+  end
+
+  @spec related(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def related(conn, %{"conversation_id" => conversation_id} = params) do
+    with %Conversation{} = conversation <-
+           Conversations.get_conversation(conversation_id) do
+      limit = Map.get(params, "limit", 3)
+      results = Conversations.list_other_recent_conversations(conversation, limit)
+
+      render(conn, "index.json", conversations: results)
+    end
   end
 
   @spec share(Plug.Conn.t(), map()) :: Plug.Conn.t()
@@ -244,7 +264,8 @@ defmodule ChatApiWeb.ConversationController do
            })
            |> Messages.create_message() do
       Messages.get_message!(msg.id)
-      |> Messages.Notification.broadcast_to_conversation!()
+      |> Messages.Notification.broadcast_to_customer!()
+      |> Messages.Notification.broadcast_to_admin!()
       |> Messages.Notification.notify(:slack)
       |> Messages.Notification.notify(:webhooks)
 
