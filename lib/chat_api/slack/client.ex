@@ -69,6 +69,25 @@ defmodule ChatApi.Slack.Client do
     end
   end
 
+  @spec get_message_permalink(binary(), binary(), binary()) :: {:ok, nil} | Tesla.Env.result()
+  def get_message_permalink(channel, ts, access_token) do
+    if should_execute?(access_token) do
+      get("/chat.getPermalink",
+        query: [channel: channel, message_ts: ts],
+        headers: [
+          {"Authorization", "Bearer " <> access_token}
+        ]
+      )
+    else
+      # Inspect what would've been sent for debugging
+      Logger.info(
+        "Would have gotten permalink for message #{inspect(ts)} from channel #{inspect(channel)}"
+      )
+
+      {:ok, nil}
+    end
+  end
+
   @spec retrieve_user_info(binary(), binary()) :: {:ok, nil} | Tesla.Env.result()
   def retrieve_user_info(user_id, access_token) do
     if should_execute?(access_token) do
@@ -91,6 +110,22 @@ defmodule ChatApi.Slack.Client do
     if should_execute?(access_token) do
       get("/conversations.list",
         query: [types: "public_channel,private_channel"],
+        headers: [
+          {"Authorization", "Bearer " <> access_token}
+        ]
+      )
+    else
+      Logger.info("Invalid access token")
+
+      {:ok, nil}
+    end
+  end
+
+  @spec list_users(binary()) :: {:ok, nil} | Tesla.Env.result()
+  def list_users(access_token) do
+    if should_execute?(access_token) do
+      get("/users.list",
+        query: [],
         headers: [
           {"Authorization", "Bearer " <> access_token}
         ]

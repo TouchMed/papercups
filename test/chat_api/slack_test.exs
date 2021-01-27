@@ -23,7 +23,7 @@ defmodule ChatApi.SlackTest do
   @slack_user_id "U123TEST"
   @slack_channel_id "C123TEST"
 
-  describe "Slack.Notifications" do
+  describe "Slack.Notification" do
     setup do
       account = insert(:account)
       auth = insert(:slack_authorization, account: account, type: "support")
@@ -45,7 +45,7 @@ defmodule ChatApi.SlackTest do
        thread: thread}
     end
 
-    test "Notifications.notify_slack_channel/2 sends a thread reply notification", %{
+    test "Notification.notify_slack_channel/2 sends a thread reply notification", %{
       account: account,
       auth: auth,
       conversation: conversation,
@@ -73,7 +73,7 @@ defmodule ChatApi.SlackTest do
           {:ok, %{body: Map.merge(%{"ok" => true}, msg)}}
         end do
         message = Messages.get_message!(message.id)
-        assert :ok = Slack.Notifications.notify_slack_channel(@slack_channel_id, message)
+        assert :ok = Slack.Notification.notify_slack_channel(@slack_channel_id, message)
 
         assert_called(Slack.Client.send_message(:_, :_))
 
@@ -92,7 +92,7 @@ defmodule ChatApi.SlackTest do
       end
     end
 
-    test "Notifications.notify_slack_channel/2 sends a thread reply notification for users without profile info",
+    test "Notification.notify_slack_channel/2 sends a thread reply notification for users without profile info",
          %{
            account: account,
            auth: auth,
@@ -114,7 +114,7 @@ defmodule ChatApi.SlackTest do
           {:ok, %{body: Map.merge(%{"ok" => true}, msg)}}
         end do
         message = Messages.get_message!(message.id)
-        assert :ok = Slack.Notifications.notify_slack_channel(@slack_channel_id, message)
+        assert :ok = Slack.Notification.notify_slack_channel(@slack_channel_id, message)
 
         assert_called(Slack.Client.send_message(:_, :_))
 
@@ -132,7 +132,7 @@ defmodule ChatApi.SlackTest do
       end
     end
 
-    test "Notifications.notify_slack_channel/2 does not send a thread reply if channel is not found",
+    test "Notification.notify_slack_channel/2 does not send a thread reply if channel is not found",
          %{
            account: account,
            customer: customer,
@@ -144,10 +144,30 @@ defmodule ChatApi.SlackTest do
         send_message: fn msg, _ ->
           {:ok, %{body: Map.merge(%{"ok" => true}, msg)}}
         end do
-        assert :ok = Slack.Notifications.notify_slack_channel("C123UNKNOWN", message)
+        assert :ok = Slack.Notification.notify_slack_channel("C123UNKNOWN", message)
 
         assert_not_called(Slack.Client.send_message(:_, :_))
       end
+    end
+
+    test "Notification.validate_send_to_primary_channel/2 returns :ok if the message is the initial message",
+         %{thread: thread} do
+      assert :ok =
+               Slack.Notification.validate_send_to_primary_channel(thread, is_first_message: true)
+
+      assert :ok =
+               Slack.Notification.validate_send_to_primary_channel(nil, is_first_message: true)
+    end
+
+    test "Notification.validate_send_to_primary_channel/2 returns :ok if a thread already exists",
+         %{thread: thread} do
+      assert :ok =
+               Slack.Notification.validate_send_to_primary_channel(thread, is_first_message: false)
+    end
+
+    test "Notification.validate_send_to_primary_channel/2 returns :error if the message when the message is not an initial message and a thread does not exist" do
+      assert :error =
+               Slack.Notification.validate_send_to_primary_channel(nil, is_first_message: false)
     end
   end
 
@@ -533,6 +553,151 @@ defmodule ChatApi.SlackTest do
         assert updated_customer.email == "new@customer.com"
         assert updated_customer.name == "Test Customer"
       end
+    end
+
+    test "Helpers.sanitize_slack_message/2 formats user IDs properly", %{account: account} do
+      authorization = insert(:slack_authorization, account: account)
+      slack_user_id_with_username_only = "U123USERNAMEONLY"
+      slack_user_id_with_real_name = "U123WITHREALNAME"
+      slack_user_id_with_display_name = "U123WITHDISPLAYNAME"
+
+      slack_users_by_id = %{
+        slack_user_id_with_username_only => %{
+          "id" => slack_user_id_with_username_only,
+          "name" => "alexr",
+          "real_name" => "Alex Reichert",
+          "tz" => "America/New_York"
+        },
+        slack_user_id_with_real_name => %{
+          "id" => slack_user_id_with_real_name,
+          "name" => "alexr",
+          "real_name" => "Alex Reichert",
+          "tz" => "America/New_York",
+          "profile" => %{"email" => "new@customer.com", "real_name" => "Alex Reichert"}
+        },
+        slack_user_id_with_display_name => %{
+          "id" => slack_user_id_with_display_name,
+          "name" => "alexr",
+          "real_name" => "Alex Reichert",
+          "tz" => "America/New_York",
+          "profile" => %{
+            "email" => "new@customer.com",
+            "real_name" => "Alex Reichert",
+            "display_name" => "Alex"
+          }
+        }
+      }
+
+      with_mock ChatApi.Slack.Client,
+        retrieve_user_info: fn slack_user_id, _ ->
+          {:ok, %{body: %{"ok" => true, "user" => Map.get(slack_users_by_id, slack_user_id)}}}
+        end do
+        assert "What's up, @alexr?" =
+                 Slack.Helpers.sanitize_slack_message(
+                   "What's up, <@#{slack_user_id_with_username_only}>?",
+                   authorization
+                 )
+
+        assert "Hi there, @Alex Reichert!" =
+                 Slack.Helpers.sanitize_slack_message(
+                   "Hi there, <@#{slack_user_id_with_real_name}>!",
+                   authorization
+                 )
+
+        assert "How's it going, @Alex?" =
+                 Slack.Helpers.sanitize_slack_message(
+                   "How's it going, <@#{slack_user_id_with_display_name}>?",
+                   authorization
+                 )
+      end
+    end
+
+    test "Helpers.sanitize_slack_message/2 doesn't do anything for unrecognized user IDs", %{
+      account: account
+    } do
+      authorization = insert(:slack_authorization, account: account)
+
+      with_mock ChatApi.Slack.Client,
+        retrieve_user_info: fn _, _ ->
+          {:ok, "Something went wrong!"}
+        end do
+        assert capture_log(fn ->
+                 assert "What's up, <@U123INVALID>?" =
+                          Slack.Helpers.sanitize_slack_message(
+                            "What's up, <@U123INVALID>?",
+                            authorization
+                          )
+               end) =~ "Unable to retrieve Slack username"
+      end
+    end
+
+    test "Helpers.sanitize_slack_message/2 formats links properly", %{account: account} do
+      authorization = insert(:slack_authorization, account: account)
+
+      assert "[https://google.com](https://google.com)" =
+               Slack.Helpers.sanitize_slack_message("<https://google.com>", authorization)
+
+      assert "[google.com](http://google.com)" =
+               Slack.Helpers.sanitize_slack_message(
+                 "<http://google.com|google.com>",
+                 authorization
+               )
+
+      assert "[www.google.com](http://google.com)" =
+               Slack.Helpers.sanitize_slack_message(
+                 "<http://google.com|www.google.com>",
+                 authorization
+               )
+
+      assert "[check it out!](https://google.com)" =
+               Slack.Helpers.sanitize_slack_message(
+                 "<https://google.com|check it out!>",
+                 authorization
+               )
+    end
+
+    test "Helpers.sanitize_slack_message/2 formats mailto links properly", %{account: account} do
+      authorization = insert(:slack_authorization, account: account)
+
+      assert "[alex@test.com](mailto:alex@test.com)" =
+               Slack.Helpers.sanitize_slack_message(
+                 "<mailto:alex@test.com|alex@test.com>",
+                 authorization
+               )
+
+      assert "[alex123+papercups@test.com](mailto:alex123+papercups@test.com)" =
+               Slack.Helpers.sanitize_slack_message(
+                 "<mailto:alex123+papercups@test.com|alex123+papercups@test.com>",
+                 authorization
+               )
+    end
+
+    test "Helpers.sanitize_slack_message/2 doesn't modify messages without urls, mailto links, or user IDs",
+         %{account: account} do
+      authorization = insert(:slack_authorization, account: account)
+
+      [
+        "Hi there!",
+        "<this is not a link or user ID>",
+        "@papercups is awesome",
+        "Yo | yo | yo",
+        "<links-must-start-with-http.com>",
+        # TODO: add support for formatting this one:
+        "<#C123> is a link to a channel"
+      ]
+      |> Enum.each(fn text ->
+        assert ^text = Slack.Helpers.sanitize_slack_message(text, authorization)
+      end)
+    end
+
+    test "Helpers.is_bot_message?/1 checks if the Slack message payload is from a bot" do
+      bot_message = %{"bot_id" => "B123", "text" => "I am a bot"}
+      nil_bot_message = %{"bot_id" => nil, "text" => "I am not a bot"}
+      non_bot_message = %{"text" => "I am also not a bot"}
+
+      assert Slack.Helpers.is_bot_message?(bot_message)
+      refute Slack.Helpers.is_bot_message?(nil_bot_message)
+      refute Slack.Helpers.is_bot_message?(non_bot_message)
     end
   end
 end
