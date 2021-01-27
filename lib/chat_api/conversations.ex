@@ -39,6 +39,7 @@ defmodule ChatApi.Conversations do
     |> order_by([c, f], desc: f)
     |> preload([:customer, messages: [:uploads, user: :profile]])
     |> Repo.all()
+
     # |> preload([:customer, messages: [user: :profile, :attachments]])
   end
 
